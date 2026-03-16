@@ -179,18 +179,23 @@ def exp2_lighting_robustness():
     ]
 
     results = []
+    trial_rows = []
     for name, brightness in conditions:
         detections = 0
-        for _ in range(30):
+        for trial in range(30):
             img = np.clip(base * brightness + np.random.normal(0, 5, base.shape), 0, 255).astype(np.uint8)
             rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
             res = face_mesh.process(rgb)
-            if res.multi_face_landmarks:
-                detections += 1
+            detected = 1 if res.multi_face_landmarks else 0
+            detections += detected
+            trial_rows.append({'condition': name, 'brightness': brightness,
+                                'trial': trial, 'detected': detected})
 
         rate = detections / 30
         results.append({'condition': name, 'brightness': brightness, 'detection_rate': rate})
         print(f"  {name:14s} (x{brightness:.1f}) -> Detection: {rate:.0%}")
+
+    pd.DataFrame(trial_rows).to_csv(f"{SYNTH}/exp2_lighting_trials.csv", index=False)
 
     rdf = pd.DataFrame(results)
     rdf.to_csv(f"{RESULTS}/exp2_results.csv", index=False)
@@ -224,12 +229,15 @@ def exp3_performance():
     n_frames = 50
     latencies = []
 
-    for _ in range(n_frames):
+    for i in range(n_frames):
         frame = np.random.randint(0, 255, (h, w, 3), dtype=np.uint8)
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         t0 = time.time()
         face_mesh.process(rgb)
         latencies.append((time.time() - t0) * 1000)
+
+    pd.DataFrame({'frame': range(n_frames), 'latency_ms': latencies,
+                  'resolution': f'{w}x{h}'}).to_csv(f"{SYNTH}/exp3_latency_frames.csv", index=False)
 
     avg = np.mean(latencies)
     std = np.std(latencies)
@@ -276,6 +284,7 @@ def exp4_user_study():
     ]
 
     results = []
+    all_frames = []
     for name, dist_prob, dur_min in sessions:
         n = int(dur_min * 60 * fps)
         window = int(3.0 * fps)
@@ -307,6 +316,9 @@ def exp4_user_study():
                 history.pop(0)
             pred = "distracted" if sum(history) / len(history) >= 0.6 else "focused"
 
+            all_frames.append({'session': name, 'frame': i, 'timestamp': i / fps,
+                                'yaw': round(yaw, 2), 'true_state': state, 'pred_state': pred})
+
             # Score
             if state == "distracted" and pred == "distracted": tp += 1
             elif state == "focused" and pred == "distracted":  fp += 1
@@ -323,6 +335,7 @@ def exp4_user_study():
                         'recall': round(r, 3), 'f1': round(f, 3), 'accuracy': round(a, 3)})
         print(f"  {name:18s} -> P={p:.3f} R={r:.3f} F1={f:.3f} Acc={a:.3f}")
 
+    pd.DataFrame(all_frames).to_csv(f"{SYNTH}/exp4_session_frames.csv", index=False)
     rdf = pd.DataFrame(results)
     rdf.to_csv(f"{RESULTS}/exp4_results.csv", index=False)
 
