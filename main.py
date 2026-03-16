@@ -4,9 +4,10 @@ estimates head pose via PnP, and classifies attention as focused/distracted.
 When the user looks away for too long, a visual alert is triggered.
 
 Usage:
-    python main.py                  # Run with webcam
-    python main.py --video test.mp4 # Run on a video file
-    python main.py --debug          # Show landmark overlay
+    python main.py                              # Run with webcam
+    python main.py --video test.mp4             # Run on a video file
+    python main.py --stimulus subway_surfers.mp4 # Set stimulus video
+    python main.py --debug                      # Show landmark overlay
 
 Controls:
     q - Quit
@@ -20,6 +21,7 @@ import os
 import cv2
 import numpy as np
 import mediapipe as mp
+import pygame
 
 
 # Head Pose Estimation:
@@ -141,27 +143,139 @@ class AttentionClassifier:
 
 # Visual Feedback (Stimulus)
 
-def draw_alert(frame, duration):
-    """Draw flashing border + REFOCUS text when distracted."""
-    h, w = frame.shape[:2]
+class StimulusPlayer:
+    """
+    Plays a video (e.g. Subway Surfers) as an overlay when triggered.
+    Falls back to flashing REFOCUS alert if no video file is provided.
+    """
 
-    # Flashing red/orange border
-    tick = int(time.time() * 5) % 2
-    color = (0, 0, 255) if tick == 0 else (0, 165, 255)
-    cv2.rectangle(frame, (0, 0), (w - 1, h - 1), color, 8)
+    def __init__(self, video_path=None, audio_path=None):
+        self.cap = None
+        self.active = False
+        self.has_video = False
+        self.has_audio = False
+        self.video_w = 0
+        self.video_h = 0
 
-    # Pulsing text
-    scale = 1.5 + 0.3 * np.sin(time.time() * 4)
-    text = "REFOCUS!"
-    sz = cv2.getTextSize(text, cv2.FONT_HERSHEY_DUPLEX, scale, 3)[0]
-    tx, ty = (w - sz[0]) // 2, (h + sz[1]) // 2
-    cv2.putText(frame, text, (tx + 2, ty + 2), cv2.FONT_HERSHEY_DUPLEX, scale, (0, 0, 0), 4)
-    cv2.putText(frame, text, (tx, ty), cv2.FONT_HERSHEY_DUPLEX, scale, color, 3)
+        pygame.mixer.init()
 
-    # Distraction timer bar
-    bar_fill = min(duration / 10.0, 1.0)
-    cv2.rectangle(frame, (20, h - 40), (20 + int(bar_fill * (w - 40)), h - 20), color, -1)
-    cv2.rectangle(frame, (20, h - 40), (w - 20, h - 20), (255, 255, 255), 1)
+        if video_path and os.path.isfile(video_path):
+            self.cap = cv2.VideoCapture(video_path)
+            if self.cap.isOpened():
+                self.has_video = True
+                self.video_w = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                self.video_h = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                print(f"Stimulus video loaded: {video_path} ({self.video_w}x{self.video_h})")
+            else:
+                print(f"Warning: Could not open {video_path}, using fallback alert")
+                self.cap = None
+
+        if audio_path and os.path.isfile(audio_path):
+            try:
+                pygame.mixer.music.load(audio_path)
+                self.has_audio = True
+                print(f"Stimulus audio loaded: {audio_path}")
+            except Exception as e:
+                print(f"Warning: Could not load {audio_path}: {e}")
+
+    def start(self):
+        self.active = True
+        if self.cap:
+            self.cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+        if self.has_audio:
+            pygame.mixer.music.play(-1)  # -1 = loop indefinitely
+
+    def stop(self):
+        self.active = False
+        if self.has_audio:
+            pygame.mixer.music.stop()
+
+    def render(self, frame, duration):
+        if not self.active:
+            return frame
+        if self.has_video:
+            return self._render_video(frame, duration)
+        else:
+            return self._render_fallback(frame, duration)
+
+    def _render_video(self, frame, duration):
+        """Overlay Subway Surfers video in top-right corner, preserving aspect ratio."""
+        h, w = frame.shape[:2]
+
+        ret, vframe = self.cap.read()
+        if not ret:
+            # Loop the video
+            self.cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+            ret, vframe = self.cap.read()
+            if not ret:
+                return self._render_fallback(frame, duration)
+
+        # Scale video to ~40% of frame height, keeping aspect ratio
+        target_h = int(h * 0.55)
+        aspect = self.video_w / self.video_h
+        target_w = int(target_h * aspect)
+
+        # Clamp width so it doesn't take more than 35% of frame
+        max_w = int(w * 0.35)
+        if target_w > max_w:
+            target_w = max_w
+            target_h = int(target_w / aspect)
+
+        vframe_resized = cv2.resize(vframe, (target_w, target_h))
+
+        # Place in top-right corner with a small margin
+        margin = 10
+        x_start = w - target_w - margin
+        y_start = margin
+
+        # Paste onto frame
+        frame[y_start:y_start + target_h, x_start:x_start + target_w] = vframe_resized
+
+        # Red border around video
+        cv2.rectangle(frame, (x_start - 2, y_start - 2),
+                      (x_start + target_w + 2, y_start + target_h + 2), (0, 0, 255), 2)
+
+        # Flashing REFOCUS text at bottom center
+        tick = int(time.time() * 5) % 2
+        color = (0, 0, 255) if tick == 0 else (0, 165, 255)
+        text = "REFOCUS!"
+        scale = 1.3
+        sz = cv2.getTextSize(text, cv2.FONT_HERSHEY_DUPLEX, scale, 3)[0]
+        tx = (w - sz[0]) // 2
+        ty = h - 30
+        cv2.putText(frame, text, (tx + 2, ty + 2), cv2.FONT_HERSHEY_DUPLEX, scale, (0, 0, 0), 4)
+        cv2.putText(frame, text, (tx, ty), cv2.FONT_HERSHEY_DUPLEX, scale, color, 3)
+
+        return frame
+
+    def _render_fallback(self, frame, duration):
+        """Draw flashing border + REFOCUS text when no video available."""
+        h, w = frame.shape[:2]
+
+        # Flashing red/orange border
+        tick = int(time.time() * 5) % 2
+        color = (0, 0, 255) if tick == 0 else (0, 165, 255)
+        cv2.rectangle(frame, (0, 0), (w - 1, h - 1), color, 8)
+
+        # Pulsing text
+        scale = 1.5 + 0.3 * np.sin(time.time() * 4)
+        text = "REFOCUS!"
+        sz = cv2.getTextSize(text, cv2.FONT_HERSHEY_DUPLEX, scale, 3)[0]
+        tx, ty = (w - sz[0]) // 2, (h + sz[1]) // 2
+        cv2.putText(frame, text, (tx + 2, ty + 2), cv2.FONT_HERSHEY_DUPLEX, scale, (0, 0, 0), 4)
+        cv2.putText(frame, text, (tx, ty), cv2.FONT_HERSHEY_DUPLEX, scale, color, 3)
+
+        # Distraction timer bar
+        bar_fill = min(duration / 10.0, 1.0)
+        cv2.rectangle(frame, (20, h - 40), (20 + int(bar_fill * (w - 40)), h - 20), color, -1)
+        cv2.rectangle(frame, (20, h - 40), (w - 20, h - 20), (255, 255, 255), 1)
+
+        return frame
+
+    def release(self):
+        if self.cap:
+            self.cap.release()
+        pygame.mixer.quit()
 
 
 def draw_hud(frame, yaw, pitch, roll, state, fps, duration, yaw_thresh, pitch_thresh):
@@ -173,7 +287,8 @@ def draw_hud(frame, yaw, pitch, roll, state, fps, duration, yaw_thresh, pitch_th
 
     # Semi-transparent background
     overlay = frame.copy()
-    cv2.rectangle(overlay, (10, 10), (270, 140), (0, 0, 0), -1)
+    panel_h = 160 if duration > 0 else 140
+    cv2.rectangle(overlay, (10, 10), (270, panel_h), (0, 0, 0), -1)
     cv2.addWeighted(overlay, 0.5, frame, 0.5, 0, frame)
 
     cv2.putText(frame, f"State: {state.upper()}", (20, 35), font, 0.6, c, 2)
@@ -184,8 +299,9 @@ def draw_hud(frame, yaw, pitch, roll, state, fps, duration, yaw_thresh, pitch_th
     cv2.putText(frame, f"Roll:  {roll:+.1f}", (20, 104), font, 0.4, (200, 200, 200), 1)
     cv2.putText(frame, f"FPS: {fps:.0f}", (20, 126), font, 0.4, (200, 200, 200), 1)
 
+    # Distracted timer inside the HUD panel instead of top-right
     if duration > 0:
-        cv2.putText(frame, f"Distracted: {duration:.1f}s", (w - 200, 35), font, 0.5, (0, 0, 255), 2)
+        cv2.putText(frame, f"Distracted: {duration:.1f}s", (20, 150), font, 0.45, (0, 0, 255), 2)
 
 
 # Main Loop
@@ -193,6 +309,8 @@ def draw_hud(frame, yaw, pitch, roll, state, fps, duration, yaw_thresh, pitch_th
 def main():
     parser = argparse.ArgumentParser(description="Attention Monitor")
     parser.add_argument("--video", type=str, default=None, help="Video file (default: webcam)")
+    parser.add_argument("--stimulus", type=str, default=None,
+                        help="Path to stimulus video (e.g. subwaysurfers.mp4)")
     parser.add_argument("--yaw", type=float, default=30.0, help="Yaw threshold degrees")
     parser.add_argument("--pitch", type=float, default=25.0, help="Pitch threshold degrees")
     parser.add_argument("--window", type=float, default=3.0, help="Temporal window seconds")
@@ -219,11 +337,30 @@ def main():
         window_sec=args.window,
     )
 
+    # Auto-detect stimulus video in current directory
+    stimulus_path = args.stimulus
+    if stimulus_path is None:
+        for name in ["subwaysurfer.mp4", "subwaysurfers.mp4", "subway.mp4", "stimulus.mp4"]:
+            if os.path.isfile(name):
+                stimulus_path = name
+                break
+
+    # Auto-detect NyanCat audio
+    audio_path = None
+    for name in ["NyanCat.mp3", "nyancat.mp3", "nyanccat.mp3", "stimulus.mp3"]:
+        if os.path.isfile(name):
+            audio_path = name
+            break
+
+    stimulus = StimulusPlayer(stimulus_path, audio_path)
+
     debug = args.debug
     prev_time = time.time()
     fps = 0.0
 
     print(f"Thresholds: yaw={args.yaw}°, pitch={args.pitch}°, window={args.window}s")
+    if not stimulus.has_video:
+        print("Tip: place subwaysurfers.mp4 in this folder for video overlay")
     print("Controls: q=quit, d=toggle debug")
 
     while True:
@@ -277,7 +414,12 @@ def main():
 
         # Step 4: Visual feedback
         if state == "distracted" and duration >= args.delay:
-            draw_alert(frame, duration)
+            if not stimulus.active:
+                stimulus.start()
+            frame = stimulus.render(frame, duration)
+        else:
+            if stimulus.active:
+                stimulus.stop()
 
         draw_hud(frame, yaw, pitch, roll, state, fps, duration,
                  args.yaw, args.pitch)
@@ -285,7 +427,7 @@ def main():
         cv2.imshow("Attention Monitor", frame)
 
         key = cv2.waitKey(1) & 0xFF
-        if key == ord('q'):
+        if key == ord('q') or cv2.getWindowProperty("Attention Monitor", cv2.WND_PROP_VISIBLE) < 1:
             break
         elif key == ord('d'):
             debug = not debug
@@ -293,6 +435,7 @@ def main():
     cap.release()
     cv2.destroyAllWindows()
     face_mesh.close()
+    stimulus.release()
 
 
 if __name__ == "__main__":

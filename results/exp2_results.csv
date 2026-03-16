@@ -1,0 +1,6 @@
+condition,brightness,detection_rate
+Very Dark,0.2,0.23333333333333334
+Dim,0.5,1.0
+Normal,1.0,1.0
+Bright,1.5,1.0
+Overexposed,2.5,1.0

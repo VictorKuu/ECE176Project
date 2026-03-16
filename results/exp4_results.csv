@@ -1,0 +1,6 @@
+session,precision,recall,f1,accuracy
+Deep Focus,0.448,0.322,0.375,0.901
+Moderate Focus,0.471,0.348,0.4,0.728
+Frequent Breaks,0.543,0.443,0.488,0.633
+Tired/Late,0.569,0.474,0.517,0.604
+Meeting Day,0.51,0.386,0.439,0.672

@@ -109,7 +109,7 @@ def exp1_threshold_optimization(df):
             a = accuracy_score(true, pred)
             results.append({'yaw_thresh': yt, 'window': w,
                             'precision': p, 'recall': r, 'f1': f, 'accuracy': a})
-            print(f"  Yaw={yt:2d}° W={w:.0f}s → P={p:.3f} R={r:.3f} F1={f:.3f} Acc={a:.3f}")
+            print(f"  Yaw={yt:2d}deg W={w:.0f}s -> P={p:.3f} R={r:.3f} F1={f:.3f} Acc={a:.3f}")
 
     rdf = pd.DataFrame(results)
     rdf.to_csv(f"{RESULTS}/exp1_results.csv", index=False)
@@ -145,7 +145,7 @@ def exp1_threshold_optimization(df):
     plt.tight_layout()
     plt.savefig(f"{RESULTS}/exp1_threshold_optimization.png", dpi=150)
     plt.close()
-    print(f"  Best: Yaw={best['yaw_thresh']:.0f}° W={best['window']:.0f}s → F1={best['f1']:.3f}")
+    print(f"  Best: Yaw={best['yaw_thresh']:.0f}deg W={best['window']:.0f}s -> F1={best['f1']:.3f}")
 
 
 # Experiment 2: Lighting Robustness 
@@ -188,7 +188,7 @@ def exp2_lighting_robustness():
 
         rate = detections / 30
         results.append({'condition': name, 'brightness': brightness, 'detection_rate': rate})
-        print(f"  {name:14s} (×{brightness:.1f}) → Detection: {rate:.0%}")
+        print(f"  {name:14s} (x{brightness:.1f}) -> Detection: {rate:.0%}")
 
     rdf = pd.DataFrame(results)
     rdf.to_csv(f"{RESULTS}/exp2_results.csv", index=False)
@@ -319,7 +319,7 @@ def exp4_user_study():
 
         results.append({'session': name, 'precision': round(p, 3),
                         'recall': round(r, 3), 'f1': round(f, 3), 'accuracy': round(a, 3)})
-        print(f"  {name:18s} → P={p:.3f} R={r:.3f} F1={f:.3f} Acc={a:.3f}")
+        print(f"  {name:18s} -> P={p:.3f} R={r:.3f} F1={f:.3f} Acc={a:.3f}")
 
     rdf = pd.DataFrame(results)
     rdf.to_csv(f"{RESULTS}/exp4_results.csv", index=False)
