@@ -26,7 +26,9 @@ import cv2
 import mediapipe as mp
 
 RESULTS = "results"
+SYNTH = "synth_data"
 os.makedirs(RESULTS, exist_ok=True)
+os.makedirs(SYNTH, exist_ok=True)
 
 
 # Synthetic Data Generation
@@ -432,7 +434,8 @@ def main():
     args = parser.parse_args()
 
     df = generate_synthetic_data()
-    print(f"Synthetic data: {len(df)} frames, {df.timestamp.max():.0f}s")
+    df.to_csv(f"{SYNTH}/synthetic_head_pose.csv", index=False)
+    print(f"Synthetic data: {len(df)} frames, {df.timestamp.max():.0f}s -> saved to {SYNTH}/synthetic_head_pose.csv")
 
     if args.exp == 1 or args.exp is None:
         exp1_threshold_optimization(df)
